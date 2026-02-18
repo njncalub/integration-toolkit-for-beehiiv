@@ -131,9 +131,24 @@ class Helper {
 	 * Set scheduled import.
 	 *
 	 * @param array $params The parameters array.
+	 * @param bool  $update Whether to update the schedule.
 	 * @return int|\WP_Error
 	 */
-	public static function schedule_import_campaigns( $params ) {
+	public static function schedule_import_campaigns( $params, $update = false ) {
+
+		if ( $update ) {
+			try {
+				// Attempt to delete the action.
+				\ActionScheduler::store()->delete_action( intval( $params['id'] ) );
+			} catch ( \Exception $e ) {
+				return new \WP_Error(
+					'failed_delete',
+					'Failed to delete the scheduled import.',
+					array( 'status' => 500 )
+				);
+			}
+		}
+
 		$frequency = $params['schedule_settings']['frequency'];
 		$timestamp = strtotime( 'now' );
 
@@ -178,7 +193,6 @@ class Helper {
 			return $schedule_id;
 		}
 	}
-
 	/**
 	 * Include the WooCommerce action scheduler.
 	 *
@@ -224,6 +238,7 @@ class Helper {
 		$head_tag     = $doc->getElementsByTagName( 'head' )->item( 0 );
 		$head_content = '';
 		if ( $head_tag ) {
+			// Loop through the head tag's children and append them to head_content.
 			//phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 			foreach ( $head_tag->childNodes as $child ) {
 				//phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -235,6 +250,7 @@ class Helper {
 		$body_tag     = $doc->getElementsByTagName( 'body' )->item( 0 );
 		$body_content = '';
 		if ( $body_tag ) {
+			// Loop through the body tag's children and append them to body_content.
 			//phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 			foreach ( $body_tag->childNodes as $child ) {
 				//phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
@@ -250,5 +266,72 @@ class Helper {
 		$final_content = preg_replace( '/\s+/', ' ', $final_content ); // Normalize excessive spaces.
 
 		return $final_content;
+	}
+
+	/**
+	 * Get all Beehiiv connections.
+	 *
+	 * Retrieves all Beehiiv connections stored in the options table.
+	 *
+	 * @param bool $include_api_key Whether to include the API key in the returned array.
+	 * @return array The array of Beehiiv connections.
+	 */
+	public static function get_all_beehiiv_connections( bool $include_api_key = false ): array {
+		// Retrieve and validate option data from WordPress options.
+		$connections = get_option( 'itfb_beehiiv_connections' );
+
+		// Return an empty array if connections are not valid.
+		if ( ! is_array( $connections ) ) {
+			return array();
+		}
+
+		// Iterate over each connection and modify the API key if needed.
+		foreach ( $connections as &$connection ) {
+			if ( isset( $connection['api_key'] ) && is_string( $connection['api_key'] ) ) {
+				if ( ! $include_api_key ) {
+					$masked_length         = strlen( $connection['api_key'] );
+					$connection['api_key'] = str_repeat( '*', max( 0, $masked_length - 10 ) ) . substr( $connection['api_key'], -10 );
+				}
+			}
+		}
+
+		return $connections;
+	}
+
+
+
+
+	/**
+	 * Add a new Beehiiv connection.
+	 *
+	 * @param string $connection_name The name of the connection.
+	 * @param string $api_key The Beehiiv API key.
+	 * @param string $publication_id The Beehiiv publication ID.
+	 * @return bool|\WP_Error True if the connection was added successfully, otherwise a WP_Error object.
+	 */
+	public static function add_beehiiv_connection( string $connection_name, string $api_key, string $publication_id ) {
+		// Retrieve existing connections from WordPress options.
+		$connections = get_option( 'itfb_beehiiv_connections', array() );
+
+		// Ensure connections is a valid array.
+		if ( ! is_array( $connections ) ) {
+			$connections = array();
+		}
+
+		// Add the new connection data to the connections array.
+		$connections[ $connection_name ] = array(
+			'api_key'        => $api_key,
+			'publication_id' => $publication_id,
+		);
+
+		// Attempt to save the updated connections array back to WordPress options.
+		$updated = update_option( 'itfb_beehiiv_connections', $connections );
+
+		// Return WP_Error if the update fails, otherwise return true.
+		if ( ! $updated ) {
+			return new \WP_Error( 'save_failed', 'Failed to save the connection to WordPress options.' );
+		}
+
+		return true;
 	}
 }
